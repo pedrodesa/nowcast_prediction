@@ -93,3 +93,102 @@ Os dados utilizados são do sistema de informação e-SUS Notifica do Ministéri
     │   └── test_tendencia_intensidade.R
     └── testthat.R
 ```
+
+5. Preparação para a build do projeto
+
+a) Estrutura de credenciais - antes de buildar
+O extract_data.R e o load_data.R precisam se autenticar no Sharepoint.
+
+```r
+# src/extract/extract_data.R — ler credenciais do ambiente
+tenant_id <- Sys.getenv('SHAREPOINT_TENANT_ID')
+client_id <- Sys.getenv('SHAREPOINT_CLIENT_ID')
+client_secret <- Sys.getenv('SHAREPOINT_CLIENT_SECRET')
+site_url <- Sys.getenv('SHAREPOINT_SITE_URL')
+```
+
+b) Arquivo .env - No servidor, nunca no repositório
+
+```bash
+# .env  ← adicionar no .gitignore
+SHAREPOINT_TENANT_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+SHAREPOINT_CLIENT_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+SHAREPOINT_CLIENT_SECRET=sua_secret_aqui
+SHAREPOINT_SITE_URL=https://suaorg.sharepoint.com/sites/seusite
+```
+
+6. Comandos no servidor Ubuntu
+
+a) Instalar Docker
+
+```bash
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker $USER
+newgrp docker
+```
+
+b) Clonar projeto e configurar credenciais
+
+```bash
+git clone https://seu-repositorio/nowcast_covid.git
+cd nowcast_covid
+
+# Criar o .env com as credenciais
+nano .env
+```
+
+c) Build da imagem docker
+
+```bash
+docker build -t nowcast-covid .
+```
+
+d) Rodar container
+
+```bash
+docker run --rm \
+  --env-file .env \
+  -v $(pwd)/data:/app/data \
+  nowcast-covid
+```
+-v $(pwd)/data:/app/data monta a pasta data/ do servidor dentro do container — os outputs em data/processed/ ficam disponíveis no servidor após a execução.
+
+
+7. Rodar automaticamente no cron
+
+```
+# Editar o crontab
+crontab -e
+
+# Rodar toda segunda-feira às 6h
+0 6 * * 1 cd /home/usuario/nowcast_covid && docker run --rm \
+  --env-file .env \
+  -v $(pwd)/data:/app/data \
+  nowcast-covid >> data/logs/cron.log 2>&1
+```
+
+---
+
+## Fluxo completo no servidor
+```bash
+cron / execução manual
+        │
+        ▼
+docker run nowcast-covid
+        │
+        ├── extract_data.R  →  baixa parquet do SharePoint  →  data/raw/
+        ├── run_nowcast.R   →  processa tudo                →  data/processed/
+        └── load_data.R     →  envia CSVs para SharePoint
+                │
+                └── data/logs/run_YYYYMMDD_HHMMSS.log  (persistido via volume)
+```
+
+---
+
+## `.gitignore` — garantir que credenciais não vazem
+```
+.env
+data/raw/
+data/processed/
+data/logs/
+```
