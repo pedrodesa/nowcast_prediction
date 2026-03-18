@@ -1,0 +1,964 @@
+---
+title: "Nowcasting COVID-19" 
+author: "Centro Nacional de Inteligência Epidemiológica"
+date: "`r format(Sys.Date(), '%d de %B de %Y')`"
+output:
+  prettydoc::html_pretty:
+    theme: architect
+    highlight: github
+---
+
+```{r, echo=FALSE,warning=FALSE,message=FALSE}
+
+
+# Carregar pacotes necessários
+if (!requireNamespace("pacman", quietly = TRUE)) install.packages("pacman")
+pacman::p_load(
+  tidyverse, 
+  lubridate, 
+  INLA, 
+  nowcaster, 
+  aweek, 
+  xts, 
+  geofacet, 
+  purrr, 
+  tidyr,
+  geobr,
+  sf
+  )
+
+library(rmarkdown)
+```
+
+```{r, echo=FALSE,warning=FALSE,message=FALSE}
+
+conf_covid2 <- read.csv("./dados_processados.csv")
+
+limiar<-read.csv("./limiares_UF_COVID_casos_media.csv")
+
+data_att <- read.csv("C:/Users/amanda.sibin/Ministério da Saúde/Transferência de Dados [CNIE-CGCOVID] - e-SUS Notifica [covid-19]/datas_de_atualizacao.csv")
+data_att <- data_att$data.de.atualização.dos.dados
+
+cores_limiar <- c(
+  "sem_risco" = "white",
+  "baixo" = "#000099",  # Azul vibrante
+  "moderado" = "#009900",  # Verde esmeralda
+  "alto" = "#FFD166",      # Amarelo dourado
+  "muito_alto" = "#cc0000"   # Laranja intenso
+)
+
+colnames(conf_covid2) <- c("dataInicioSintomas", 
+                           "dataNotificacao", 
+                          # "dataAtualizacao",
+                           "dataEncerramento",
+                           "dataRegistro",
+                           "regiao",
+                           "estadoIBGE",
+                           "idade")
+
+get.intensity<- function(trajectories, region_code, window=2){
+  
+  limi<-limiar %>%
+    filter(escala=="casos") %>%
+    mutate(across(1:5, as.numeric)) %>%
+    filter(cod_regiao==region_code)
+  
+  ##calculando intensidade nas Ãºltimas 2 semanas
+  inten<-  trajectories %>%
+    group_by(sample,Time,dt_event) %>%
+    summarise(Y=sum(Y))%>%
+    as.data.frame() %>%
+    filter(dt_event>(max(dt_event)-window*7)) %>%
+    group_by() %>%
+    summarise("Baixo risco"=round(sum(Y<limi$baixo)*100/n(),1),
+              "Segurança"=round(sum(Y>=limi$baixo & Y<limi$moderado)*100/n(),1),
+              "Alerta"=round(sum(Y>=limi$moderado & Y<limi$alto)*100/n(),1),
+              "Risco"=round(sum(Y>=limi$alto & Y<limi$muito_alto)*100/n(),1),
+              "Alto risco"=round(sum(Y>=limi$muito_alto)*100/n(),1)) %>%
+    pivot_longer(
+      everything(),
+      names_to = "intensidade",
+      values_to = "prob"
+    )
+  
+  inten_f<-inten %>% filter(prob==max(inten$prob)) 
+  
+  
+  return(inten_f)
+  
+}
+
+conf_covid2 <- conf_covid2 %>%
+  mutate(
+    dataNotificacao = as.Date(dataNotificacao),
+    dataRegistro = as.Date(dataRegistro),
+  #  dataAtualizacao = as.Date(dataAtualizacao),
+    dataInicioSintomas = as.Date(dataInicioSintomas)
+  )
+
+# Filtrar dados das últimas 26 semanas
+df1 <- conf_covid2 %>% 
+  filter(dataNotificacao >= max(dataNotificacao) - 26 * 7)
+
+# 1.2 Análise de valores ausentes
+nas <- df1 %>% 
+  summarise(across(everything(), ~ sum(is.na(.)), .names = "nas_{col}"))
+
+# 1.3 Diferenças entre datas
+difs <- tibble(
+  datas = c("notificacao - sintomas", "registro - notificacao", "registro - sintomas"),
+  min = c(min(df1$dataNotificacao - df1$dataInicioSintomas, na.rm = TRUE),
+          min(df1$dataRegistro - df1$dataNotificacao, na.rm = TRUE),
+          min(df1$dataRegistro - df1$dataInicioSintomas, na.rm = TRUE)),
+  q1 = c(quantile(df1$dataNotificacao - df1$dataInicioSintomas, 0.25, na.rm = TRUE),
+         quantile(df1$dataRegistro - df1$dataNotificacao, 0.25, na.rm = TRUE),
+         quantile(df1$dataRegistro - df1$dataInicioSintomas, 0.25, na.rm = TRUE)),
+  mediana = c(median(df1$dataNotificacao - df1$dataInicioSintomas, na.rm = TRUE),
+              median(df1$dataRegistro - df1$dataNotificacao, na.rm = TRUE),
+              median(df1$dataRegistro - df1$dataInicioSintomas, na.rm = TRUE)),
+  media = c(mean(df1$dataNotificacao - df1$dataInicioSintomas, na.rm = TRUE),
+            mean(df1$dataRegistro - df1$dataNotificacao, na.rm = TRUE),
+            mean(df1$dataRegistro - df1$dataInicioSintomas, na.rm = TRUE)),
+  q3 = c(quantile(df1$dataNotificacao - df1$dataInicioSintomas, 0.75, na.rm = TRUE),
+         quantile(df1$dataRegistro - df1$dataNotificacao, 0.75, na.rm = TRUE),
+         quantile(df1$dataRegistro - df1$dataInicioSintomas, 0.75, na.rm = TRUE)),
+  max = c(max(df1$dataNotificacao - df1$dataInicioSintomas, na.rm = TRUE),
+          max(df1$dataRegistro - df1$dataNotificacao, na.rm = TRUE),
+          max(df1$dataRegistro - df1$dataInicioSintomas, na.rm = TRUE))
+)
+
+# 1.4 Cálculo por unidade federativa (UF)
+ufs <- tibble(
+  uf = c('AC', 'AL', 'AM', 'AP', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MG',
+         'MS', 'MT', 'PA', 'PB', 'PE', 'PI', 'PR', 'RJ', 'RN', 'RO', 'RR',
+         'RS', 'SC', 'SE', 'SP', 'TO'),
+  estado = c("Acre", "Alagoas", "Amazonas", "Amapá", "Bahia", "Ceará",
+             "Distrito Federal", "Espírito Santo", "Goiás", "Maranhão",
+             "Minas Gerais", "Mato Grosso do Sul", "Mato Grosso", "Pará",
+             "Paraíba", "Pernambuco", "Piauí", "Paraná", "Rio de Janeiro",
+             "Rio Grande do Norte", "Rondônia", "Roraima", "Rio Grande do Sul",
+             "Santa Catarina", "Sergipe", "São Paulo", "Tocantins"),
+  cod = c(12, 27, 13, 16, 29, 23, 53, 32, 52, 21, 31, 50, 51, 15, 25, 26, 22, 41,
+          33, 24, 11, 14, 43, 42, 28, 35, 17)
+  )
+
+datas <- df1 %>% 
+  mutate(
+    notsin = as.numeric(dataNotificacao - dataInicioSintomas),
+    regnot = as.numeric(dataRegistro - dataNotificacao),
+    regsin = as.numeric(dataRegistro - dataInicioSintomas)
+  )
+
+datas_uf <- left_join(datas, ufs, by = c("estadoIBGE" = "cod")) %>% 
+  select(-estadoIBGE)
+
+# 1.5 Cálculo de médias por UF
+medias <- datas_uf %>% 
+  group_by(uf) %>% 
+  summarise(across(starts_with("not"), mean, na.rm = TRUE)) %>% 
+  pivot_longer(cols = starts_with("not"), names_to = "variavel", values_to = "media")
+
+```
+
+## Nowcasting - Brasil
+
+```{r echo=FALSE, fig.height=5, fig.width=9, message=FALSE, warning=FALSE}
+# 1.2 - Seleção e ajuste de variáveis
+
+## 1.2.1 - Conhecendo e ajustando as variáveis
+
+### Banco 14/08
+conf_covid2 <- conf_covid2 %>%
+  mutate(
+    dataInicioSintomas = as.Date(dataInicioSintomas),
+    dataRegistro = as.Date(dataRegistro),
+    # Faixa etária categorizada
+    Faixa = case_when(
+      idade < 20 ~ "menor que 20",
+      idade >= 20 & idade <= 39 ~ "20 a 39",
+      idade >= 40 & idade <= 59 ~ "40 a 59",
+      idade >= 60 & idade <= 69 ~ "60 a 69",
+      idade >= 70 & idade <= 79 ~ "70 a 79",
+      idade >= 80 ~ "80 ou mais"
+    )
+  ) %>%
+  filter(dataInicioSintomas >= (max(dataInicioSintomas, na.rm = TRUE) - weeks(25)) &
+         dataInicioSintomas <= max(dataInicioSintomas, na.rm = TRUE))
+
+# Adicionar códigos de estados do IBGE
+tabela_ibge <- tibble(
+  estadoIBGE = c(11, 12, 13, 14, 15, 16, 17, 21, 22, 23, 24, 25, 26, 27, 28, 29,
+                 31, 32, 33, 35, 41, 42, 43, 50, 51, 52, 53),
+  UF_IBGE = c("RO", "AC", "AM", "RR", "PA", "AP", "TO", "MA", "PI", "CE", "RN", "PB",
+              "PE", "AL", "SE", "BA", "MG", "ES", "RJ", "SP", "PR", "SC", "RS",
+              "MS", "MT", "GO", "DF")
+)
+
+conf_covid2 <- left_join(conf_covid2, tabela_ibge, by = "estadoIBGE")
+
+
+
+# 1.3 - Ajuste da série histórica
+
+## Banco 01/08
+serie_historica2 <- conf_covid2 %>%
+  group_by(dataInicioSintomas) %>%
+  summarise(n = n())
+
+# 2 - Modelagem Nowcasting
+
+## 2.2 - Modelagem com 12 semanas
+nowcast_covid12 <- nowcasting_inla(
+  dataset = conf_covid2,
+  date_onset = "dataInicioSintomas",
+  date_report = "dataRegistro",
+  data.by.week = TRUE,
+  Dmax = 6,
+  wdw = 12
+)
+
+# 2.5 - Ajuste da série por semana epidemiológica (SE)
+
+## Série de 14/08
+serie_semana2 <- conf_covid2 %>%
+  mutate(
+    semana_epi = epiweek(dataInicioSintomas),
+    ano_epi = epiyear(dataInicioSintomas),
+    dt_event = aweek::get_date(semana_epi, ano_epi, start = 7)
+  ) %>%
+  group_by(dt_event) %>%
+  summarise(n = n())
+
+# 3 - Gráficos
+
+## Ajustar os índices com NA para alinhar as séries
+serie2_xts <- xts(serie_semana2$n, order.by = as.Date(serie_semana2$dt_event))
+now12_xts <- xts(c(rep(NA, length(serie2_xts) - length(nowcast_covid12$total$Median)), 
+                   nowcast_covid12$total$Median), 
+                 order.by = index(serie2_xts))
+LI_xts <- xts(c(rep(NA, length(serie2_xts) - length(nowcast_covid12$total$LI)), 
+                nowcast_covid12$total$LI), 
+              order.by = index(serie2_xts))
+LS_xts <- xts(c(rep(NA, length(serie2_xts) - length(nowcast_covid12$total$LS)), 
+                nowcast_covid12$total$LS), 
+              order.by = index(serie2_xts))
+
+## Combinar as séries
+serie_combinada <- cbind(serie2_xts, now12_xts, LI_xts, LS_xts)
+colnames(serie_combinada) <- c("Registros", "Now12", "Lower", "Upper")
+
+
+## Ordenar por data
+serie_combinada <- serie_combinada[order(index(serie_combinada)), ]
+
+serie_combinada_df <- as.data.frame(serie_combinada)
+serie_combinada_df$Data <- as.Date(rownames(serie_combinada_df))
+serie_long <- serie_combinada_df %>%
+  pivot_longer(cols = -Data, names_to = "Série", values_to = "Valor")
+
+# Definir cores para as séries
+cores <- c(
+  "Registros" = "#0097b2",
+  "Now12" = "black",
+  "Lower" = "darkgrey",
+  "Upper" = "darkgrey"
+)
+
+## 3.3 - Plot do gráfico
+ggplot(serie_long, aes(x = Data, y = Valor, color = Série)) +
+  geom_line(
+  data = subset(serie_long, !(Série %in% c("Lower", "Upper"))),
+  aes(x = Data, y = Valor, color = Série),
+  linewidth = 1
+)+
+  
+  # barras dos casos observados
+  geom_col(
+    data = subset(serie_long, Série == "Registros"),
+    aes(x = Data, y = Valor),
+    fill = "#0097b2",
+    alpha = 0.4,
+     width = 7,
+    inherit.aes = FALSE
+  ) +
+  geom_ribbon(
+  data = serie_combinada_df,
+  aes(x = Data, ymin = Lower, ymax = Upper),
+  fill = "darkgrey",
+  alpha = 0.5,
+  inherit.aes = FALSE
+)+
+  labs(
+    title = "Brasil",
+    x = "Semana Epidemiológica",
+    y = "Número de casos de SG por covid-19",
+    color = "Série"
+  ) +
+  scale_x_date(date_breaks = "1 week", date_labels = "%V") +
+  scale_color_manual(
+    values = c("Now12" = "black",  # ou outra cor que você queira
+               "Registros" = "#0097b2"),
+    labels = c("Now12" = "Nowcast",
+               "Registros" = "Casos observados"),
+    name = ""  # título da legenda
+  ) +
+  theme_minimal() +
+  theme(
+    # Legenda no canto superior direito
+    legend.position = c(0.9, 1.05),
+    legend.justification = c("right", "top"),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 14),
+    
+    # Título e eixos
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 12),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    
+    # Linhas dos eixos apenas
+    panel.grid = element_blank(),          # remove todas as grades
+    panel.border = element_blank(),        # remove borda do painel
+    axis.line = element_line(color = "black") # adiciona linhas dos eixos x e y
+  )
+
+
+#############################
+ggsave('./img/st_com_intervalo_de_confianca.jpg', width = 9, height = 6, dpi = 300)
+#############################
+
+
+### Análise
+
+# Extrair os seis últimos valores de now12_xts e seus índices
+valores_now12 <- tail(as.numeric(now12_xts), 6)
+datas_now12 <- as.numeric(tail(index(now12_xts), 6))  # Converter as datas para numérico
+
+# Ajustar uma reta aos dados
+coeficientes <- lm(valores_now12 ~ datas_now12)$coefficients
+
+# Coeficiente angular da reta
+inclinação <- coeficientes[2]
+
+# Classificação da tendência
+tendência <- ifelse(
+  inclinação > 0.05, "Crescente",
+  ifelse(inclinação < -0.05, "Descrescente", "Estacionário")
+)
+
+```
+
+Os modelos ajustados para a série do Brasil apresentaram, nas últimas seis semanas, uma tendência `r tendência` nos casos notificados de Covid-19
+
+## Nowcasting - UFs
+
+```{r fig.height=20, fig.width=18}
+#3 - Modelagem nowcaster
+
+recortes_UF_b2 <- split(conf_covid2, conf_covid2$UF_IBGE)  
+recortes_Faixa_b2 <- split(conf_covid2, conf_covid2$Faixa)
+#3.1 - Lista de armazenamento dos resultados Nowcast
+                     
+#3.1.1 - Lista Resultados UF
+resultados_nowcasting_UF <- list()
+                     
+#3.1.2 - Lista Resultados Faixa
+resultados_nowcasting_Faixa <- list() 
+            
+#3.2 - Nowcast UF (EstadoNotificacaoIBGE)  
+for (estado in names(recortes_UF_b2)) {
+    dados_estado <- recortes_UF_b2[[estado]]
+    nowcast_UF <- nowcasting_inla(
+        dataset = dados_estado,  
+        date_onset = "dataInicioSintomas",  
+        date_report = "dataRegistro",  
+        data.by.week = TRUE,
+        trajectories=TRUE,
+        Dmax = 6,
+        wdw = 12
+    )
+    resultados_nowcasting_UF[[estado]] <- list(nowcast_UF = nowcast_UF)
+}
+                 
+
+#3.3 - Nowcast Faixa
+for (Faixa in names(recortes_Faixa_b2)) {
+    dados_Faixa <- recortes_Faixa_b2[[Faixa]]
+    nowcast_Faixa <- nowcasting_inla(
+        dataset = dados_Faixa,  
+        date_onset = "dataInicioSintomas",  
+        date_report = "dataRegistro",  
+        data.by.week = TRUE,
+        Dmax = 6,
+        wdw = 12
+    )
+    resultados_nowcasting_Faixa[[Faixa]] <- list(nowcast_Faixa = nowcast_Faixa)
+}
+                     
+                     
+#4 - Ajustando Dados por SE
+                     
+#4.1 - Listas de Armazenamento
+                    
+#4.1.1 - UF
+lista_series_semana_UF2 <- list() # Inicializar uma lista para armazenar os resultados do banco
+                     
+#4.1.2 - Faixa
+lista_series_semana_Faixa2 <- list() # Inicializar uma lista para armazenar os resultados do banco
+                               
+                      
+                     
+#4.1 - Colocando em SE para as UF
+                                
+#4.1.2 - Banco 14/08                     
+for (estado in names(recortes_UF_b2)) {
+    dados_estado_2 <- recortes_UF_b2[[estado]]
+    serie_semana_2 <- dados_estado_2 %>%
+        mutate(
+            semana_epi = epiweek(dataInicioSintomas), 
+            ano_epi = epiyear(dataInicioSintomas), 
+            dt_event = aweek::get_date(semana_epi, ano_epi, start = 7)
+        ) %>%
+        group_by(dt_event) %>%
+        count()
+    lista_series_semana_UF2[[estado]] <- serie_semana_2
+}
+        
+                     
+               
+#4.2 - Colocando em SE para as Faixa
+                                
+#4.2.1 - Banco 14/08          
+for (Faixa in names(recortes_Faixa_b2)) {
+    dados_Faixa_2 <- recortes_Faixa_b2[[Faixa]]
+    serie_semana_2 <- dados_Faixa_2 %>%
+        mutate(
+            semana_epi = epiweek(dataInicioSintomas), 
+            ano_epi = epiyear(dataInicioSintomas), 
+            dt_event = aweek::get_date(semana_epi, ano_epi, start = 7)
+        ) %>%
+        group_by(dt_event) %>%
+        count()
+    lista_series_semana_Faixa2[[Faixa]] <- serie_semana_2
+}
+
+
+#5 - Plot
+#5.1 - Listas de Armazenamento         
+                                
+#5.1.1- UF
+series_combinadas_UF <- list() #Séries
+lista_graficos_UF <- list() #Gráfico
+                    
+#5.1.2 - Faixa
+series_combinadas_Faixa <- list() #Séries
+lista_graficos_Faixa <- list() #Gráfico
+                    
+                    
+#5.2 - Gerando Gráficos
+
+# Preparar dataframe único para todas as UFs
+df_combinado <- data.frame()
+
+for (uf in names(lista_series_semana_UF2)) {
+    # Preparar as séries no formato xts
+    serie_uf <- lista_series_semana_UF2[[uf]]
+    serie_xts <- xts(as.numeric(serie_uf$n), order.by = as.Date(serie_uf$dt_event))
+    nowcast_uf <- resultados_nowcasting_UF[[uf]]
+    now12_values <- as.numeric(nowcast_uf$nowcast_UF$total$Median)
+    LI_values <- as.numeric(nowcast_uf$nowcast_UF$total$LI)
+    LS_values <- as.numeric(nowcast_uf$nowcast_UF$total$LS)
+    now12_xts <- xts(c(rep(NA, length(serie_xts) - length(now12_values)), now12_values), order.by = index(serie_xts))
+    LI_xts <- xts(c(rep(NA, length(serie_xts) - length(LI_values)), LI_values), order.by = index(serie_xts))
+    LS_xts <- xts(c(rep(NA, length(serie_xts) - length(LS_values)), LS_values), order.by = index(serie_xts))
+                      
+    # Combinar as séries
+    serie_combinada <- cbind(serie_xts, now12_xts, LI_xts, LS_xts)
+    colnames(serie_combinada) <- c("Número de Casos", "Nowcast", "Now12 - LI", "Now12 - LS")
+                      
+    # Converter para dataframe
+    serie_combinada_df <- as.data.frame(serie_combinada)
+    serie_combinada_df$Data <- as.Date(rownames(serie_combinada_df))
+    serie_combinada_df$DS_UF_SIGLA <- uf # Adicionar coluna com sigla da UF
+                      
+    # Combinar com o dataframe principal
+    df_combinado <- bind_rows(df_combinado, serie_combinada_df)
+}
+                    
+# Ajustar os dados para incluir ymin e ymax para o intervalo de confiança
+df_combinado <- df_combinado %>%
+    mutate(
+        ymin = ifelse(!is.na(`Now12 - LI`), `Now12 - LI`, NA),
+        ymax = ifelse(!is.na(`Now12 - LS`), `Now12 - LS`, NA)
+    )
+          
+#Criar o Gráfico          
+grafico_final <- ggplot(df_combinado, aes(x = Data)) +
+    geom_area(aes(y = `Número de Casos`, x=Data, color = "Número de Casos"), 
+              fill = "#0097b2", alpha=0.5,
+              inherit.aes = FALSE) +
+  geom_line(aes(y = `Número de Casos`, color = "Número de Casos"),linewidth = 1) +
+    geom_line(aes(y = `Nowcast`, color = "Nowcast"), linewidth = 1) +
+    geom_ribbon(
+        aes(ymin = ymin, ymax = ymax),
+        fill = "black", alpha = 0.2
+    ) +
+    geom_line(aes(y = `Now12 - LI`, color = "Limite Inferior"), linetype = "dashed", linewidth = 0.5) +
+    geom_line(aes(y = `Now12 - LS`, color = "Limite Superior"), linetype = "dashed", linewidth = 0.5) +
+    scale_color_manual(values = c(
+        "Número de Casos" = "#0097b2", 
+        "Nowcast" = "black"),
+        labels = c("Nowcast" = "Nowcast", "Número de Casos" = "Casos observados")) +
+  scale_x_date(date_breaks = "4 weeks", date_labels = "%V") +
+    labs(
+        title = "Número de casos observados e Nowcasting por UF",
+        x = "Semana Epidemiológica",
+        y = "Número de casos de SG por covid-19",
+        color = "Legenda"
+    ) +
+    theme_bw() +
+    theme(
+    legend.position = c(1, 0.99),
+    legend.justification = c("right", "top"),
+    legend.text = element_text(size = 20),
+    legend.title = element_text(size = 22),
+    plot.title = element_text(hjust = 0.5, size = 28, face = "bold"),
+    axis.title = element_text(size = 21),
+    axis.text = element_text(size = 18),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid = element_blank(),
+    strip.text = element_text(size = 16, face = "bold")  # aumenta título de cada facet
+  ) +
+    facet_geo(~DS_UF_SIGLA, grid = "br_states_grid1", scales = "free_y")
+
+# Exibir o gráfico
+print(grafico_final)
+
+##########################
+# Exportar gráfico
+ggsave('./img/evolucao_casos_nowcasting_uf.jpg', width = 20, height = 18, dpi = 300)
+##########################
+
+### ANÁLISE UF
+# Inicializar um vetor para armazenar os resultados por categoria
+crescentes <- c()
+decrescentes <- c()
+estacionarios <- c()
+
+# Loop através de cada UF na lista
+for (uf in names(resultados_nowcasting_UF)) {
+  # Obter os dados de nowcast para a UF
+  nowcast_uf <- resultados_nowcasting_UF[[uf]]$nowcast_UF$total
+  
+  # Extrair os últimos seis valores e datas
+  valores_now12 <- tail(as.numeric(nowcast_uf$Median), 6)
+  datas_now12 <- as.numeric(tail(as.Date(nowcast_uf$dt_event), 6)) # Converter datas para numérico
+  
+  # Ajustar uma reta aos dados
+  modelo <- lm(valores_now12 ~ datas_now12)
+  coeficientes <- coef(modelo)
+  inclinação <- coeficientes[2] # Coeficiente angular
+  
+  # Classificação da tendência
+  if (inclinação > 0.05) {
+    crescentes <- c(crescentes, uf)
+  } else if (inclinação < -0.05) {
+    decrescentes <- c(decrescentes, uf)
+  } else {
+    estacionarios <- c(estacionarios, uf)
+  }
+}
+
+# Gerar mensagens de saída
+msg_crescentes <- if (length(crescentes) > 0) {
+  paste("as UFs", paste(crescentes, collapse = ", "), "possuem tendência crescente")
+} else {
+  "nenhuma UF apresentou tendência crescente"
+}
+
+msg_decrescentes <- if (length(decrescentes) > 0) {
+  paste("as UFs", paste(decrescentes, collapse = ", "), "possuem tendência decrescente")
+} else {
+  "nenhuma UF apresentou tendência decrescente"
+}
+
+msg_estacionarios <- if (length(estacionarios) > 0) {
+  paste("as UFs", paste(estacionarios, collapse = ", "), "possuem tendência estacionária.")
+} else {
+  "nenhuma UF apresentou tendência estacionária."
+}
+
+```
+Os modelos ajustados para as séries das UF's indicaram que nas últimas seis semanas `r msg_crescentes`, `r msg_decrescentes` e `r msg_estacionarios`
+
+## Nowcasting - Faixa etária
+
+Os modelos por faixa etária também apresentaram um ajuste adequado aos dados, sem indicar tendências alarmantes de aumento.
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE, fig.height=16, fig.width=8}
+ # Criar listas para armazenar séries e gráficos
+                    lista_series_long_Faixa <- list()
+                    
+                    # Loop para processar cada faixa
+                    for (Faixa in names(lista_series_semana_Faixa2)) {
+                      # Preparar as séries no formato xts
+                      serie_fx <- lista_series_semana_Faixa2[[Faixa]]
+                      serie_xts_fx <- xts(as.numeric(serie_fx$n), order.by = as.Date(serie_fx$dt_event))
+                      nowcast_fx <- resultados_nowcasting_Faixa[[Faixa]]
+                      now12_values_fx <- as.numeric(nowcast_fx$nowcast_Faixa$total$Median)
+                      LI_values_fx <- as.numeric(nowcast_fx$nowcast_Faixa$total$LI)
+                      LS_values_fx <- as.numeric(nowcast_fx$nowcast_Faixa$total$LS)
+                      now12_xts_fx <- xts(c(rep(NA, length(serie_xts_fx) - length(now12_values_fx)), now12_values_fx), order.by = index(serie_xts_fx))
+                      LI_xts_fx <- xts(c(rep(NA, length(serie_xts_fx) - length(LI_values_fx)), LI_values_fx), order.by = index(serie_xts_fx))
+                      LS_xts_fx <- xts(c(rep(NA, length(serie_xts_fx) - length(LS_values_fx)), LS_values_fx), order.by = index(serie_xts_fx))
+                      
+                      # Combinar as séries
+                      serie_combinada_fx <- cbind(serie_xts_fx, now12_xts_fx, LI_xts_fx, LS_xts_fx)
+                      colnames(serie_combinada_fx) <- c("Número de Casos", "Now12 - Mediana", "Now12 - LI", "Now12 - LS")
+                      
+                      # Converter para dataframe
+                      serie_combinada_df_fx <- as.data.frame(serie_combinada_fx)
+                      serie_combinada_df_fx$Data <- as.Date(rownames(serie_combinada_df_fx))
+                      
+                      # Transformar para formato longo
+                      serie_long_fx <- serie_combinada_df_fx %>%
+                        pivot_longer(
+                          cols = -Data, # Excluir a coluna Data
+                          names_to = "Série",
+                          values_to = "Valor"
+                        )
+                      
+                      # Adicionar ao dicionário de resultados
+                      lista_series_long_Faixa[[Faixa]] <- list(long = serie_long_fx, df = serie_combinada_df_fx)
+                    }
+                    
+                    # Configurar o layout da grade para os gráficos
+                    par(mfrow = c(3, 2)) # Configuração para uma grade 3x2
+                    
+                    # Plotar gráficos para cada Faixa
+                    for (Faixa in names(lista_series_long_Faixa)) {
+                      # Dados para a Faixa
+                      serie_long_fx <- lista_series_long_Faixa[[Faixa]]$long
+                      serie_df_fx <- lista_series_long_Faixa[[Faixa]]$df
+                      
+                      # Criar o gráfico base para "Número de Casos"
+                      plot(
+                        serie_long_fx$Data[serie_long_fx$Série == "Número de Casos"], 
+                        serie_long_fx$Valor[serie_long_fx$Série == "Número de Casos"], 
+                        type = "l", col = "lightblue", 
+                        ylim = range(serie_long_fx$Valor, na.rm = TRUE), 
+                        xlab = "Data", ylab = "Número de Casos", 
+                        main = paste("Faixa:", Faixa),lwd=2
+                      )
+                      
+                      
+                      # Adicionar o intervalo de confiança
+                      polygon(
+                        c(serie_long_fx$Data[serie_long_fx$Série == "Now12 - LI"], 
+                          rev(serie_long_fx$Data[serie_long_fx$Série == "Now12 - LS"])),
+                        c(serie_long_fx$Valor[serie_long_fx$Série == "Now12 - LI"], 
+                          rev(serie_long_fx$Valor[serie_long_fx$Série == "Now12 - LS"])),
+                        col = adjustcolor("lightgrey", alpha.f = 0.5), border = NA
+                      )
+                      
+                      # Adicionar a linha "Now12 - Mediana"
+                      lines(
+                        serie_long_fx$Data[serie_long_fx$Série == "Now12 - Mediana"], 
+                        serie_long_fx$Valor[serie_long_fx$Série == "Now12 - Mediana"], 
+                        col = "black",lwd=2
+                      )
+                      
+                      # Adicionar linhas "Now12 - LI" e "Now12 - LS"
+                      lines(
+                        serie_long_fx$Data[serie_long_fx$Série == "Now12 - LI"], 
+                        serie_long_fx$Valor[serie_long_fx$Série == "Now12 - LI"], 
+                        col = "lightgrey", lty = 2,lwd=2
+                      )
+                      lines(
+                        serie_long_fx$Data[serie_long_fx$Série == "Now12 - LS"], 
+                        serie_long_fx$Valor[serie_long_fx$Série == "Now12 - LS"], 
+                        col = "lightgrey", lty = 2,lwd=2
+                      )
+                      
+                      # Adicionar legenda
+                      legend(
+                        "topright", legend = c("Casos", "Nowcast", "LI", "LS"), 
+                        col = c("lightblue", "black", "lightgrey", "lightgrey"), 
+                        lty = c(1, 1, 2, 2), bty = "n"
+                      )
+                    }
+                    
+                    
+                    
+invisible(dev.copy(jpeg, "./img/evolucao_casos_nowcasting_faixa_etaria.jpg", width = 2400, height = 4800, res = 300, quality = 100))
+invisible(dev.off())
+
+### ANALISE
+# Inicializar vetores para armazenar os resultados por categoria
+crescentes_fx <- c()
+decrescentes_fx <- c()
+estacionarios_fx <- c()
+
+# Loop através de cada faixa etária na lista
+for (Faixa in names(resultados_nowcasting_Faixa)) {
+  # Obter os dados de nowcast para a faixa etária
+  nowcast_fx <- resultados_nowcasting_Faixa[[Faixa]]$nowcast_Faixa$total
+  
+  # Extrair os últimos seis valores e datas
+  valores_now12 <- tail(as.numeric(nowcast_fx$Median), 6)
+  datas_now12 <- as.numeric(tail(as.Date(nowcast_fx$dt_event), 6)) # Converter datas para numérico
+  
+  # Ajustar uma reta aos dados
+  modelo <- lm(valores_now12 ~ datas_now12)
+  coeficientes <- coef(modelo)
+  inclinação <- coeficientes[2] # Coeficiente angular
+  
+  # Classificação da tendência
+  if (inclinação > 0.05) {
+    crescentes_fx <- c(crescentes_fx, Faixa)
+  } else if (inclinação < -0.05) {
+    decrescentes_fx <- c(decrescentes_fx, Faixa)
+  } else {
+    estacionarios_fx <- c(estacionarios_fx, Faixa)
+  }
+}
+
+# Gerar mensagens de saída
+msg_crescentes_fx <- if (length(crescentes_fx) > 0) {
+  paste("as faixas etárias", paste(crescentes_fx, collapse = ", "), "possuem tendência crescente")
+} else {
+  "nenhuma faixa etária apresentou tendência crescente"
+}
+
+msg_decrescentes_fx <- if (length(decrescentes_fx) > 0) {
+  paste("as faixas etárias", paste(decrescentes_fx, collapse = ", "), "possuem tendência decrescente")
+} else {
+  "nenhuma faixa etária apresentou tendência decrescente"
+}
+
+msg_estacionarios_fx <- if (length(estacionarios_fx) > 0) {
+  paste("as faixas etárias", paste(estacionarios_fx, collapse = ", "), "possuem tendência estacionária.")
+} else {
+  "nenhuma faixa etária apresentou tendência estacionária."
+}
+
+```
+
+Os modelos ajustados para as faixas etárias indicaram que nas últimas seis semanas `r msg_crescentes_fx`, `r msg_decrescentes_fx` e `r msg_estacionarios_fx`
+
+
+## Nowcasting - Limiares
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE,fig.height=20, fig.width=18}
+pop <- readxl::read_xlsx("./projecoes_2024_tab1_idade_simples.xlsx", skip = 5)
+
+pop_br<- pop %>% 
+  filter (!LOCAL %in% c("Norte", "Nordeste","Centro-Oeste","Sudeste","Sul", "Brasil")) %>%
+  filter(SEXO=="Ambos") %>%
+  select(SIGLA, IDADE, '2023':'2025') %>%
+  group_by(SIGLA)  %>%
+  summarise(across('2023':'2025',\(x) sum(x, na.rm = TRUE))) %>%
+  pivot_longer('2023':'2025',names_to = "epiyear", values_to = "populacao") %>%
+  mutate(ano_epi=as.double(epiyear)) %>%
+  rename(estadoIBGE=SIGLA) 
+
+serie_2025 <- conf_covid2 %>%
+  mutate(
+    semana_epi = epiweek(dataInicioSintomas),
+    ano_epi = epiyear(dataInicioSintomas)
+  ) %>%
+  filter(ano_epi==2025) %>%   #filtrando para a partir da SE 04 de 2023 (data de breakpoint a partir de bai e perron), atÃ© a SE 05 de 2025 (para fechar 2 anos).
+  group_by(UF_IBGE, ano_epi, semana_epi) %>%  # Incluir estadoIBGE no agrupamento
+  summarise(casos_totais = n()) %>%  # Calcular casos totais
+  rename(estadoIBGE=UF_IBGE) %>%
+  left_join(pop_br, by = c("ano_epi","estadoIBGE")) %>%
+  mutate(inci = casos_totais * 100000 / populacao)  %>%  # Calcular incidÃªncia
+  mutate(media_movel = zoo::rollmean(casos_totais, k = 3, fill = NA, align = "center")) %>% # Calcular a mÃ©dia mÃ³vel separadamente para cada grupo
+  ungroup() 
+
+df_limiar <- limiar %>% filter(escala=="casos")%>% select(sem_risco,baixo,moderado,alto, muito_alto, cod_regiao) 
+df_limiar_nowcast <- df_combinado %>% left_join(df_limiar,by=c("DS_UF_SIGLA"="cod_regiao"))
+
+
+g <- ggplot(df_limiar_nowcast, aes(x = Data)) +
+    geom_area(aes(y = `Número de Casos`, x=Data, color = "Número de Casos"), 
+              fill = "#0097b2", alpha=0.5,
+              inherit.aes = FALSE) +
+  geom_line(aes(y = `Número de Casos`, color = "Número de Casos"),linewidth = 1) +
+    geom_line(aes(y = `Nowcast`, color = "Nowcast"), linewidth = 1) +
+    geom_ribbon(
+        aes(ymin = ymin, ymax = ymax),
+        fill = "black", alpha = 0.2
+    ) +
+    geom_line(aes(y = `Now12 - LI`, color = "Limite Inferior"), linetype = "dashed", linewidth = 0.5) +
+    geom_line(aes(y = `Now12 - LS`, color = "Limite Superior"), linetype = "dashed", linewidth = 0.5) +
+  
+  
+  geom_hline(aes(yintercept = baixo, color = "Limiar Baixo"), linetype = "dashed", linewidth = 1) +
+    geom_hline(aes(yintercept = moderado, color = "Limiar Moderado"), linetype = "dashed", linewidth = 1) +
+    geom_hline(aes(yintercept = alto, color = "Limiar Alto"), linetype = "dashed", linewidth = 1) +
+    geom_hline(aes(yintercept = muito_alto, color = "Limiar Muito Alto"), linetype = "dashed", linewidth = 1) +  
+  scale_color_manual(values = c(
+        "Número de Casos" = "#0097b2", 
+        "Nowcast" = "black",
+        "Limiar Baixo" = "#000099",
+        "Limiar Moderado" = "#009900",
+        "Limiar Alto" = "#FFD166",
+        "Limiar Muito Alto" = "#cc0000"),
+        labels = c("Nowcast" = "Nowcast", "Número de Casos" = "Casos observados")) +
+  scale_x_date(date_breaks = "4 weeks", date_labels = "%V") +
+    labs(
+        title = "Número de casos observados e Nowcasting por UF",
+        x = "Semana Epidemiológica",
+        y = "Número de casos de SG por covid-19",
+        color = "Legenda"
+    ) +
+    theme_bw() +
+    theme(
+    legend.position = c(1, 0.99),
+    legend.justification = c("right", "top"),
+    legend.text = element_text(size = 20),
+    legend.title = element_text(size = 22),
+    plot.title = element_text(hjust = 0.5, size = 28, face = "bold"),
+    axis.title = element_text(size = 21),
+    axis.text = element_text(size = 18),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid = element_blank(),
+    strip.text = element_text(size = 16, face = "bold")  # aumenta título de cada facet
+  ) +
+    facet_geo(~DS_UF_SIGLA, grid = "br_states_grid1", scales = "free_y")
+
+grafico_final
+
+
+g
+
+# Salvar o grafico em PNG
+ggsave("./img/grafico_limiar_incid.jpg", plot = g, width = 20, height = 18, dpi = 300)   #ATUALIZAR
+```
+
+## Nível de atividade e Tendência
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE,results='hide'}
+
+resultados_intensidade <- list()
+
+for(uf in names(resultados_nowcasting_UF)){
+  resultados_intensidade[[uf]] <- get.intensity(resultados_nowcasting_UF[[uf]]$nowcast_UF$trajectories,uf,2)
+}
+
+intensidades <- c()
+probs <- c()
+
+for(i in 1:27){
+  intensidades[i] <- resultados_intensidade[[i]]$intensidade
+  probs[i] <- resultados_intensidade[[i]]$prob
+}
+
+intensidade <- data.frame(intensidade = intensidades,
+                          prob = probs,
+                          DS_UF_SIGLA = names(resultados_intensidade),
+                          CO_UF = c(12, 27, 13, 16, 29, 23, 53, 32, 52, 21, 31, 50, 51, 15, 25, 26, 22, 41,
+          33, 24, 11, 14, 43, 42, 28, 35, 17))
+ufs<-read_state()
+
+
+```
+
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE,fig.height=14, fig.width=18}
+
+junt_uf<- ufs %>% rename(CO_UF=code_state) %>%
+                  left_join(intensidade, by="CO_UF") %>%
+                  st_as_sf()
+
+
+
+a<-ggplot(data = junt_uf) +
+  geom_sf(aes(fill=factor(intensidade,  levels = c("Baixo risco","Segurança","Alerta","Risco","Alto risco"))), 
+          show.legend = TRUE)+
+  scale_fill_manual(name = "Intensidade",
+                    values=c('#a6611a', "#BE8B44", '#dfc27d',"#fefae0",  "#018571"),
+                    limits = c("Alto risco", "Risco", "Alerta", "Segurança",  "Baixo risco"
+                    ),
+                    guide = guide_legend(
+                      override.aes = list(alpha = 1)  
+                    )
+  )+
+  theme_minimal()+
+  theme(plot.margin=unit(c(1,0,15,0), units='pt'),
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        rect = element_blank(),
+        axis.title.x = element_blank(), 
+        axis.title.y = element_blank(),
+        legend.title = element_blank(),
+        legend.text = element_text(family = 'Roboto', size = rel(.95)),
+        title = element_text(size = rel(.95), face="bold"),
+        plot.title = element_text(hjust = 0.5),
+        #  title = element_text(size=12, face="bold"),
+        panel.grid = element_blank())+
+  coord_sf() +
+  ggtitle("Nível de atividade\n(últimas 2 semanas)")
+
+a
+
+# Salvar o grafico em PNG
+ggsave("./img/grafico_atividade.jpg", plot = a, width = 18, height = 14, dpi = 300)   #ATUALIZAR
+
+tendencias <- c()
+for(i in 1:27){
+  tendencias[i] <- slope.estimate.quant(trajectories = resultados_nowcasting_UF[[i]]$nowcast_UF$trajectories, window = 6)
+}
+
+tendencia <- data.frame(DS_UF_SIGLA = names(resultados_intensidade),
+                        CO_UF = c(12, 27, 13, 16, 29, 23, 53, 32, 52, 21, 31, 50, 51, 15, 25, 26, 22, 41,
+          33, 24, 11, 14, 43, 42, 28, 35, 17),
+                        tendencia = tendencias)
+
+junt_uf1<- ufs %>% rename(CO_UF=code_state) %>%
+                  left_join(tendencia, by="CO_UF") %>%
+                  st_as_sf()
+
+b<-ggplot(data = junt_uf1) +
+  geom_sf(aes(fill=factor(tendencia, levels=c(-1, -.5, 0, .5, 1))),
+          size=0.1, show.legend=TRUE) +
+  scale_fill_manual(name = "Intensidade",
+                    values=c('#a6611a','#C08D47', "#f5f5f5", "#80cdc1",  "#018571"),
+                    breaks=c(1, .5, 0, -.5, -1),
+                  # limits=c(1, .5, 0, -.5, -1),
+                    labels=c('Prob. cresc.\n> 95%',
+                             'Prob. cresc.\n> 75%',
+                             'Estabilidade./\noscilação',
+                             'Prob. queda\n> 75%',
+                             'Prob. queda\n> 95%'
+                             ),
+                    guide = guide_legend(
+                      override.aes = list(alpha = 1)  # ForÃ§a a exibiÃ§Ã£o das cores na legenda
+                    )
+                    # guide = guide_legend(override.aes = list(alpha = 1, shape = 15, size = 5)
+  )+
+  theme_minimal()+
+  theme(plot.margin=unit(c(1,0,15,0), units='pt'),
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        rect = element_blank(),
+        axis.title.x = element_blank(), 
+        axis.title.y = element_blank(),
+        legend.title = element_blank(),
+        legend.text = element_text(family = 'Roboto', size = rel(.95)),
+        title = element_text(size = rel(.95), face="bold"),
+        plot.title = element_text(hjust = 0.5),
+        #  title = element_text(size=12, face="bold"),
+        panel.grid = element_blank())+
+  coord_sf() +
+  ggtitle("Tendência de longo prazo\n(últimas 6 semanas)")
+
+b
+
+# Salvar o grafico em PNG
+ggsave("./img/grafico_tendencia.jpg", plot = a, width = 18, height = 14, dpi = 300)   #ATUALIZAR
+
+```
