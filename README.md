@@ -1,6 +1,12 @@
 # Estimativas Nowcast - Síndrome gripal pela covid-19
 ---
 
+<img src="./docs/img/nowcast_covid19.png" width="200">
+
+<img src="./docs/img/niveis_de_atividade.png" width="200">
+
+<img src="./docs/img/mapa_tendencia.png" width="200">
+
 1. Objetivo:
 Estimar o atraso nos registros de notificação de síndrome gripal pela covid-19.
 
