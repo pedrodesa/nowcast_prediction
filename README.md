@@ -25,7 +25,7 @@ _   _                               _     ____               _ _      _   _
 ## Objetivo:
 Gerar estimativas nowcasting de casos de síndrome gripal pela covid-19.
 
-### Descrição
+### Descrição:
 O sistema desenvolvido em R gera estimativas corrigindo o atraso de notificação 
 inerente ao sistema de informação. Utiliza um modelo bayesiano via INLA. O pipeline 
 cobre todo o ciclo analítico: extração de dados brutos, tratamento, validação, 
@@ -33,13 +33,19 @@ exceução do nowcast em três recortes geográficos e demográficos (Brasil, Un
 A arquitetura segue separação clara entre camadas de configuração, motores analíticos e reutilizáveis e
 pipelines de orquestração, com cobertura de testes automatizados via testthat.
 
-2. Usuários:
-Área técnica e equipe de vigilância epidemiológica de covid-19.
-
-3. Dados:
+# Dados:
 Os dados utilizados são do sistema de informação e-SUS Notifica do Ministério da Saúde.
 
-4. Organização do projeto
+### Colunas:
+| Coluna | Tipo |
+----------------
+| dataInicioSintomas |  Date |
+| dataNotificacao | Date |
+| estadoIBGE | Character |
+| idade | int |
+
+
+## Organização do projeto:
 
 ```
 .
