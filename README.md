@@ -218,12 +218,7 @@ docker run nowcast-covid
                 └── data/logs/run_YYYYMMDD_HHMMSS.log  (persistido via volume)
 ```
 
----
-
-## `.gitignore` — garantir que credenciais não vazem
+# Como executar o projeto
 ```
-.env
-data/raw/
-data/processed/
-data/logs/
+Rscript ./scripts/run_nowcast.R
 ```
