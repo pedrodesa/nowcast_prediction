@@ -33,7 +33,7 @@ exceução do nowcast em três recortes geográficos e demográficos (Brasil, Un
 A arquitetura segue separação clara entre camadas de configuração, motores analíticos e reutilizáveis e
 pipelines de orquestração, com cobertura de testes automatizados via testthat.
 
-# Dados:
+## Dados:
 Os dados utilizados são do sistema de informação e-SUS Notifica do Ministério da Saúde.
 
 ### Colunas:
@@ -42,7 +42,7 @@ Os dados utilizados são do sistema de informação e-SUS Notifica do Ministéri
 | dataInicioSintomas |  Date |
 | dataNotificacao | Date |
 | estadoIBGE | Character |
-| idade | int |
+| idade | Int |
 
 
 ## Organização do projeto:
@@ -129,7 +129,7 @@ Os dados utilizados são do sistema de informação e-SUS Notifica do Ministéri
     └── testthat.R
 ```
 
-5. Preparação para a build do projeto
+## Preparação para a build do projeto
 
 a) Estrutura de credenciais - antes de buildar
 O extract_data.R e o load_data.R precisam se autenticar no Sharepoint.
@@ -152,7 +152,7 @@ SHAREPOINT_CLIENT_SECRET=sua_secret_aqui
 SHAREPOINT_SITE_URL=https://suaorg.sharepoint.com/sites/seusite
 ```
 
-6. Comandos no servidor Ubuntu
+## Comandos no servidor Ubuntu
 
 a) Instalar Docker
 
@@ -189,7 +189,7 @@ docker run --rm \
 -v $(pwd)/data:/app/data monta a pasta data/ do servidor dentro do container — os outputs em data/processed/ ficam disponíveis no servidor após a execução.
 
 
-7. Rodar automaticamente no cron
+## Rodar automaticamente no cron
 
 ```
 # Editar o crontab
