@@ -38,7 +38,7 @@ Os dados utilizados são do sistema de informação e-SUS Notifica do Ministéri
 
 ### Colunas:
 | Coluna | Tipo |
-----------------
+| :--- | :--- |
 | dataInicioSintomas |  Date |
 | dataNotificacao | Date |
 | estadoIBGE | Character |
