@@ -1,0 +1,209 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "data": { "name": "dataset" },
+  
+  "transform": [
+    {
+      "aggregate": [
+        {"op": "max", "field": "Soma de Registros", "as": "Soma de Registros"},
+        {"op": "max", "field": "Soma de Nowcast",   "as": "Soma de Nowcast"},
+        {"op": "max", "field": "Soma de Lower",     "as": "Soma de Lower"},
+        {"op": "max", "field": "Soma de Upper",     "as": "Soma de Upper"}
+      ],
+      "groupby": ["Data"]
+    },
+    {
+      "window": [{"op": "row_number", "as": "rank_data"}],
+      "sort": [{"field": "Data", "order": "descending"}]
+    },
+    { "filter": "datum.rank_data <= 6" },
+    {
+      "calculate": "join(split(join(split(join(split(format(datum['Soma de Registros'], ',.2f'), '.'), 'X'), '.'), ','), 'X'), '.')",
+      "as": "Registros_fmt"
+    },
+    {
+      "calculate": "join(split(join(split(join(split(format(datum['Soma de Nowcast'], ',.2f'), '.'), 'X'), '.'), ','), 'X'), '.')",
+      "as": "Nowcast_fmt"
+    },
+    {
+      "calculate": "join(split(join(split(join(split(format(datum['Soma de Lower'], ',.2f'), '.'), 'X'), '.'), ','), 'X'), '.')",
+      "as": "Lower_fmt"
+    },
+    {
+      "calculate": "join(split(join(split(join(split(format(datum['Soma de Upper'], ',.2f'), '.'), 'X'), '.'), ','), 'X'), '.')",
+      "as": "Upper_fmt"
+    }
+  ],
+
+  "vconcat": [
+    {
+      "comment": "=== CABEÇALHO AZUL ===",
+      "data": {"values": [{"dummy": 1}]},
+      "spacing": 0,
+      "hconcat": [
+        {
+          "width": 100, "height": 40,
+          "layer": [
+            {"mark": {"type": "rect", "color": "#005A9E"}},
+            {"mark": {"type": "text", "text": "Data",    "color": "white", "fontWeight": "bold", "fontSize": 18, "font": "Segoe UI"}}
+          ]
+        },
+        {
+          "width": 70, "height": 40,
+          "layer": [
+            {"mark": {"type": "rect", "color": "#005A9E"}},
+            {"mark": {"type": "text", "text": "Casos",   "color": "white", "fontWeight": "bold", "fontSize": 18, "font": "Segoe UI"}}
+          ]
+        },
+        {
+          "width": 75, "height": 40,
+          "layer": [
+            {"mark": {"type": "rect", "color": "#005A9E"}},
+            {"mark": {"type": "text", "text": "Nowcast", "color": "white", "fontWeight": "bold", "fontSize": 18, "font": "Segoe UI"}}
+          ]
+        },
+        {
+          "width": 80, "height": 40,
+          "layer": [
+            {"mark": {"type": "rect", "color": "#005A9E"}},
+            {"mark": {"type": "text", "text": "IC Inf.", "color": "white", "fontWeight": "bold", "fontSize": 18, "font": "Segoe UI"}}
+          ]
+        },
+        {
+          "width": 80, "height": 40,
+          "layer": [
+            {"mark": {"type": "rect", "color": "#005A9E"}},
+            {"mark": {"type": "text", "text": "IC Sup.", "color": "white", "fontWeight": "bold", "fontSize": 18, "font": "Segoe UI"}}
+          ]
+        }
+      ]
+    },
+    {
+      "comment": "=== CORPO DA TABELA (LINHAS ZEBRADAS) ===",
+      "spacing": 0,
+      "hconcat": [
+        {
+          "width": 100, "height": 260,
+          "layer": [
+            {
+              "mark": "rect",
+              "encoding": {
+                "y": {"field": "rank_data", "type": "ordinal", "axis": null, "scale": {"padding": 0}},
+                "color": {
+                  "condition": {"test": "datum.rank_data % 2 === 0", "value": "#F0F0F0"},
+                  "value": "#FFFFFF"
+                }
+              }
+            },
+            {
+              "mark": "text",
+              "encoding": {
+                "y": {"field": "rank_data", "type": "ordinal", "axis": null, "scale": {"padding": 0}},
+                "text": {"field": "Data", "type": "temporal", "format": "%d/%m/%Y"}
+              }
+            }
+          ]
+        },
+        {
+          "width": 70, "height": 260,
+          "layer": [
+            {
+              "mark": "rect",
+              "encoding": {
+                "y": {"field": "rank_data", "type": "ordinal", "axis": null, "scale": {"padding": 0}},
+                "color": {
+                  "condition": {"test": "datum.rank_data % 2 === 0", "value": "#F0F0F0"},
+                  "value": "#FFFFFF"
+                }
+              }
+            },
+            {
+              "mark": "text",
+              "encoding": {
+                "y": {"field": "rank_data", "type": "ordinal", "axis": null, "scale": {"padding": 0}},
+                "text": {"field": "Registros_fmt", "type": "nominal"}
+              }
+            }
+          ]
+        },
+        {
+          "width": 75, "height": 260,
+          "layer": [
+            {
+              "mark": "rect",
+              "encoding": {
+                "y": {"field": "rank_data", "type": "ordinal", "axis": null, "scale": {"padding": 0}},
+                "color": {
+                  "condition": {"test": "datum.rank_data % 2 === 0", "value": "#F0F0F0"},
+                  "value": "#FFFFFF"
+                }
+              }
+            },
+            {
+              "mark": "text",
+              "encoding": {
+                "y": {"field": "rank_data", "type": "ordinal", "axis": null, "scale": {"padding": 0}},
+                "text": {"field": "Nowcast_fmt", "type": "nominal"}
+              }
+            }
+          ]
+        },
+        {
+          "width": 80, "height": 260,
+          "layer": [
+            {
+              "mark": "rect",
+              "encoding": {
+                "y": {"field": "rank_data", "type": "ordinal", "axis": null, "scale": {"padding": 0}},
+                "color": {
+                  "condition": {"test": "datum.rank_data % 2 === 0", "value": "#F0F0F0"},
+                  "value": "#FFFFFF"
+                }
+              }
+            },
+            {
+              "mark": "text",
+              "encoding": {
+                "y": {"field": "rank_data", "type": "ordinal", "axis": null, "scale": {"padding": 0}},
+                "text": {"field": "Lower_fmt", "type": "nominal"}
+              }
+            }
+          ]
+        },
+        {
+          "width": 80, "height": 260,
+          "layer": [
+            {
+              "mark": "rect",
+              "encoding": {
+                "y": {"field": "rank_data", "type": "ordinal", "axis": null, "scale": {"padding": 0}},
+                "color": {
+                  "condition": {"test": "datum.rank_data % 2 === 0", "value": "#F0F0F0"},
+                  "value": "#FFFFFF"
+                }
+              }
+            },
+            {
+              "mark": "text",
+              "encoding": {
+                "y": {"field": "rank_data", "type": "ordinal", "axis": null, "scale": {"padding": 0}},
+                "text": {"field": "Upper_fmt", "type": "nominal"}
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "spacing": 0,
+  
+  "config": {
+    "view": {"stroke": "transparent"},
+    "axis": {"grid": false},
+    "text": {
+      "font": "Segoe UI",
+      "fontSize": 18,
+      "color": "#333333"
+    }
+  }
+}

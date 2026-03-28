@@ -1,0 +1,92 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "description": "Serie temporal com media movel e intervalo de confianca",
+
+  "data": { "name": "dataset" },
+
+  "layer": [
+    {
+      "transform": [{ "calculate": "'Intervalo de Confiança'", "as": "Serie" }],
+      "mark": { "type": "area", "opacity": 0.5 },
+      "encoding": {
+        "x": {
+          "field": "Data", "type": "temporal",
+          "title": "Semana Epidemiológica",
+          "scale": { "nice": true },
+          "axis": { "format": "%d/%m/%Y", "labelAngle": -45 }
+        },
+        "y": {
+          "field": "Lower", "type": "quantitative",
+          "title": "Valores", "scale": { "nice": true }
+        },
+        "y2": { "field": "Upper" },
+        "color": { "field": "Serie", "type": "nominal", "legend": { "title": "" } },
+        "tooltip": [
+          { "field": "Data", "type": "temporal", "format": "%d/%m/%Y", "title": "Semana Epidemiológica" },
+          { "field": "Lower", "type": "quantitative", "title": "IC Inferior", "format": "," },
+          { "field": "Upper", "type": "quantitative", "title": "IC Superior", "format": "," }
+        ]
+      }
+    },
+
+    {
+      "transform": [{ "calculate": "'Observado'", "as": "Serie" }],
+      "mark": { "type": "line", "strokeWidth": 2 },
+      "encoding": {
+        "x": { "field": "Data", "type": "temporal", "scale": { "nice": true } },
+        "y": { "field": "Registros", "type": "quantitative" },
+        "color": { "field": "Serie", "type": "nominal" }
+      }
+    },
+
+    {
+      "transform": [{ "calculate": "'Observado'", "as": "Serie" }],
+      "mark": { "type": "point", "filled": true, "size": 60 },
+      "encoding": {
+        "x": { "field": "Data", "type": "temporal" },
+        "y": { "field": "Registros", "type": "quantitative" },
+        "color": { "field": "Serie", "type": "nominal" },
+        "tooltip": [
+          { "field": "Data", "type": "temporal", "format": "%d/%m/%Y", "title": "Semana Epidemiológica" },
+          { "field": "Registros", "type": "quantitative", "title": "Casos", "format": "," },
+          { "field": "Nowcast", "type": "quantitative", "title": "Nowcast", "format": "," },
+          { "field": "Lower", "type": "quantitative", "title": "Limite Inf.", "format": "," },
+          { "field": "Upper", "type": "quantitative", "title": "Limite Sup.", "format": "," }
+        ]
+      }
+    },
+
+    {
+      "transform": [{ "calculate": "'Nowcast'", "as": "Serie" }],
+      "mark": { "type": "line", "strokeDash": [6, 4], "strokeWidth": 2 },
+      "encoding": {
+        "x": { "field": "Data", "type": "temporal" },
+        "y": { "field": "Nowcast", "type": "quantitative" },
+        "color": { "field": "Serie", "type": "nominal" }
+      }
+    }
+  ],
+
+  "resolve": { "scale": { "y": "shared" } },
+
+  "config": {
+    "numberFormatLocale": {
+      "decimal": ",",
+      "thousands": ".",
+      "grouping": [3],
+      "currency": ["R$", ""]
+    },
+    "axis": {
+      "labelFontSize": 12,
+      "titleFontSize": 13
+    },
+    "legend": {
+      "orient": "bottom",
+      "titleFontSize": 13,
+      "labelFontSize": 12
+    },
+    "range": {
+      "category": ["#444444", "#444444", "#0097B2"]
+    }
+  }
+}
