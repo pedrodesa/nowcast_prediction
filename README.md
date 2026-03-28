@@ -1,14 +1,37 @@
 # Estimativas Nowcast - Síndrome gripal pela covid-19
 ---
 
+```
+_   _                               _     ____               _ _      _   _             
+| \ | | _____      _____ __ _ ___ _| |_  |  _ \ _ __ ___  __| (_) ___| |_(_) ___  _ __  
+|  \| |/ _ \ \ /\ / / __/ _` / __|_   _| | |_) | '__/ _ \/ _` | |/ __| __| |/ _ \| '_ \ 
+| |\  | (_) \ V  V / (_| (_| \__ \ |_|   |  __/| | |  __/ (_| | | (__| |_| | (_) | | | |
+|_| \_|\___/ \_/\_/ \___\__,_|___/ |_|   |_|   |_|  \___|\__,_|_|\___|\__|_|\___/|_| |_|
+                                                                                        
+    _                _ _           _   _             
+   / \   _ __  _ __ | (_) ___ __ _| |_(_) ___  _ __  
+  / _ \ | '_ \| '_ \| | |/ __/ _` | __| |/ _ \| '_ \ 
+ / ___ \| |_) | |_) | | | (_| (_| | |_| | (_) | | | |
+/_/   \_\ .__/| .__/|_|_|\___\__,_|\__|_|\___/|_| |_|
+        |_|   |_|
+```
+
 <img src="./docs/img/nowcast_covid19.png">
 
 <img src="./docs/img/niveis_de_atividade.png">
 
 <img src="./docs/img/mapa_tendencia.png">
 
-1. Objetivo:
-Estimar o atraso nos registros de notificação de síndrome gripal pela covid-19.
+## Objetivo:
+Gerar estimativas nowcasting de casos de síndrome gripal pela covid-19.
+
+### Descrição
+O sistema desenvolvido em R gera estimativas corrigindo o atraso de notificação 
+inerente ao sistema de informação. Utiliza um modelo bayesiano via INLA. O pipeline 
+cobre todo o ciclo analítico: extração de dados brutos, tratamento, validação, 
+exceução do nowcast em três recortes geográficos e demográficos (Brasil, Unidades da Federação e faixas etárias). 
+A arquitetura segue separação clara entre camadas de configuração, motores analíticos e reutilizáveis e
+pipelines de orquestração, com cobertura de testes automatizados via testthat.
 
 2. Usuários:
 Área técnica e equipe de vigilância epidemiológica de covid-19.
